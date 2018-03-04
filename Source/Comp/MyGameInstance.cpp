@@ -12,10 +12,6 @@
 //#include "MyRewardItemActor.h"
 
 
-
-
-
-
 namespace MyGameInstanceState
 {
 	const FName None = FName(TEXT("None"));
@@ -197,7 +193,7 @@ AMyGameSession* UMyGameInstance::GetGameSession() const
 }
 
 // prototype http function
-bool UMyGameInstance::PerformHttpRequest(void(UMyGameInstance::*delegateCallback)(FHttpRequestPtr, FHttpResponsePtr, bool), FString APIURI, FString ArgumentString)
+bool UMyGameInstance::PerformHttpRequest(void(UMyGameInstance::*delegateCallback)(FHttpRequestPtr, FHttpResponsePtr, bool), FString APIURI, FString ArgumentString, FString AccessToken)
 {
 	UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] PerformHttpRequest"));
 
@@ -218,6 +214,13 @@ bool UMyGameInstance::PerformHttpRequest(void(UMyGameInstance::*delegateCallback
 	Request->SetHeader("Content-Type", "application/x-www-form-urlencoded");
 	Request->SetHeader("Key", ServerAPIKey);
 	Request->SetHeader("Sign", "RealSignatureComingIn411");
+
+	if (!AccessToken.IsEmpty())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] PerformHttpRequest AccessToken: %s "), *AccessToken);
+		Request->SetHeader(TEXT("x-uetopia-auth"), AccessToken);
+	}
+
 	Request->SetContentAsString(ArgumentString);
 
 	Request->OnProcessRequestComplete().BindUObject(this, delegateCallback);
@@ -226,7 +229,7 @@ bool UMyGameInstance::PerformHttpRequest(void(UMyGameInstance::*delegateCallback
 	return true;
 }
 
-bool UMyGameInstance::PerformJsonHttpRequest(void(UMyGameInstance::*delegateCallback)(FHttpRequestPtr, FHttpResponsePtr, bool), FString APIURI, FString ArgumentString)
+bool UMyGameInstance::PerformJsonHttpRequest(void(UMyGameInstance::*delegateCallback)(FHttpRequestPtr, FHttpResponsePtr, bool), FString APIURI, FString ArgumentString, FString AccessToken)
 {
 	UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] PerformHttpRequest"));
 
@@ -248,6 +251,13 @@ bool UMyGameInstance::PerformJsonHttpRequest(void(UMyGameInstance::*delegateCall
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json; charset=utf-8"));
 	Request->SetHeader("Key", ServerAPIKey);
 	Request->SetHeader("Sign", "RealSignatureComingIn411");
+
+	if (!AccessToken.IsEmpty())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] PerformHttpRequest AccessToken: %s "), *AccessToken);
+		Request->SetHeader(TEXT("x-uetopia-auth"), AccessToken);
+	}
+
 	Request->SetContentAsString(ArgumentString);
 
 	Request->OnProcessRequestComplete().BindUObject(this, delegateCallback);
@@ -270,7 +280,7 @@ bool UMyGameInstance::GetServerInfo()
 		OutputString = OutputString + "&session_host_address=" + ServerSessionHostAddress + "&session_id=" + ServerSessionID;
 	}
 	FString APIURI = "/api/v1/server/info";
-	bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetServerInfoComplete, APIURI, OutputString);
+	bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetServerInfoComplete, APIURI, OutputString, ""); // No AccessToken
 	return requestSuccess;
 }
 
@@ -345,7 +355,7 @@ bool UMyGameInstance::GetMatchInfo()
 		OutputString = OutputString + "&session_host_address=" + ServerSessionHostAddress + "&session_id=" + ServerSessionID;
 	}
 	FString APIURI = "/api/v1/matchmaker/info";
-	bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetMatchInfoComplete, APIURI, OutputString);
+	bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetMatchInfoComplete, APIURI, OutputString, ""); // No AccessToken
 	return requestSuccess;
 }
 
@@ -461,7 +471,7 @@ void  UMyGameInstance::GetServerLinks()
 			FString encryption = "off";  // Allowing unencrypted on sandbox for now.  
 			FString OutputString = "nonce=" + nonceString + "&encryption=" + encryption;
 			FString APIURI = "/api/v1/server/links";
-			bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetServerLinksComplete, APIURI, OutputString);
+			bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetServerLinksComplete, APIURI, OutputString, ""); // No AccessToken
 			// tell the game state to spawn them
 			//AMyGameState* const MyGameState = GetWorld() != NULL ? GetWorld()->GetGameState<AMyGameState>() : NULL;
 			//MyGameState->SpawnServerPortals();
@@ -573,6 +583,7 @@ bool UMyGameInstance::ActivatePlayer(class AMyPlayerController* NewPlayerControl
 				UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] AuthorizePlayer - FOUND MATCHING playerKeyId"));
 				playerKeyIdFound = true;
 				ActivePlayerIndex = b;
+				MatchInfo.players[b].PlayerController = NewPlayerController;
 
 				// TODO set team
 			}
@@ -583,13 +594,17 @@ bool UMyGameInstance::ActivatePlayer(class AMyPlayerController* NewPlayerControl
 		}
 		else {
 			UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] AuthorizePlayer - playerKeyId found in matchInfo"));
+
+			UE_LOG(LogTemp, Log, TEXT("CurrentAccessTokenFromOSS: %s"), *NewPlayerController->CurrentAccessTokenFromOSS);
+			FString access_token = NewPlayerController->CurrentAccessTokenFromOSS;
+
 			FString nonceString = "10951350917635";
 			FString encryption = "off";  // Allowing unencrypted on sandbox for now.  
 			FString OutputString = "nonce=" + nonceString + "&encryption=" + encryption;
 
 			FString APIURI = "/api/v1/match/player/" + playerKeyId + "/activate";;
 
-			bool requestSuccess = PerformHttpRequest(&UMyGameInstance::ActivateMatchPlayerRequestComplete, APIURI, OutputString);
+			bool requestSuccess = PerformHttpRequest(&UMyGameInstance::ActivateMatchPlayerRequestComplete, APIURI, OutputString, access_token);
 
 			return requestSuccess;
 		}
@@ -654,6 +669,9 @@ bool UMyGameInstance::ActivatePlayer(class AMyPlayerController* NewPlayerControl
 
 			//UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] AuthorizePlayer - Debug 2d"));
 
+			UE_LOG(LogTemp, Log, TEXT("CurrentAccessTokenFromOSS: %s"), *NewPlayerController->CurrentAccessTokenFromOSS);
+			FString access_token = NewPlayerController->CurrentAccessTokenFromOSS;
+
 			FString nonceString = "10951350917635";
 			FString encryption = "off";  // Allowing unencrypted on sandbox for now.  
 
@@ -668,7 +686,7 @@ bool UMyGameInstance::ActivatePlayer(class AMyPlayerController* NewPlayerControl
 
 			FString APIURI = "/api/v1/server/player/" + playerKeyId + "/activate";;
 
-			bool requestSuccess = PerformHttpRequest(&UMyGameInstance::ActivateRequestComplete, APIURI, OutputString);
+			bool requestSuccess = PerformHttpRequest(&UMyGameInstance::ActivateRequestComplete, APIURI, OutputString, access_token);
 
 			return requestSuccess;
 		}
@@ -679,19 +697,31 @@ bool UMyGameInstance::ActivatePlayer(class AMyPlayerController* NewPlayerControl
 			FString encryption = "off";  // Allowing unencrypted on sandbox for now.  
 
 			FString OutputString = "nonce=" + nonceString + "&encryption=" + encryption;
+			FString access_token = NewPlayerController->CurrentAccessTokenFromOSS;
 
-			//UE_LOG(LogTemp, Log, TEXT("ServerSessionHostAddress: %s"), *ServerSessionHostAddress);
-			//UE_LOG(LogTemp, Log, TEXT("ServerSessionID: %s"), *ServerSessionID);
-
-			if (ServerSessionHostAddress.Len() > 1) {
-				OutputString = OutputString + "&session_host_address=" + ServerSessionHostAddress + "&session_id=" + ServerSessionID;
+			// If it is already authorized, Don't resend the http request
+			if (PlayerRecord.ActivePlayers[ActivePlayerIndex].authorized)
+			{
+				UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] AuthorizePlayer - update existing record - it is already authorized."));
 			}
+			else
+			{
+				UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] AuthorizePlayer - update existing record - it is NOT already authorized."));
 
-			FString APIURI = "/api/v1/server/player/" + playerKeyId + "/activate";;
+				//UE_LOG(LogTemp, Log, TEXT("ServerSessionHostAddress: %s"), *ServerSessionHostAddress);
+				//UE_LOG(LogTemp, Log, TEXT("ServerSessionID: %s"), *ServerSessionID);
 
-			bool requestSuccess = PerformHttpRequest(&UMyGameInstance::ActivateRequestComplete, APIURI, OutputString);
+				if (ServerSessionHostAddress.Len() > 1) {
+					OutputString = OutputString + "&session_host_address=" + ServerSessionHostAddress + "&session_id=" + ServerSessionID;
+				}
 
-			return requestSuccess;
+				FString APIURI = "/api/v1/server/player/" + playerKeyId + "/activate";;
+
+				bool requestSuccess = PerformHttpRequest(&UMyGameInstance::ActivateRequestComplete, APIURI, OutputString, access_token);
+
+				return requestSuccess;
+			}
+			return true;
 		}
 		return false;
 	}
@@ -773,7 +803,7 @@ void UMyGameInstance::ActivateRequestComplete(FHttpRequestPtr HttpRequest, FHttp
 
 
 
-							GetGamePlayer(JsonParsed->GetStringField("game_player_key_id"), true);
+							GetGamePlayer(JsonParsed->GetStringField("player_userid"), true);
 
 						}
 						if (PlayerRecord.ActivePlayers[b].authorized) {
@@ -1125,16 +1155,21 @@ bool UMyGameInstance::GetGamePlayer(FString playerKeyId, bool bAttemptLock)
 	FString nonceString = "10951350917635";
 	FString encryption = "off";  // Allowing unencrypted on sandbox for now.  
 	FString OutputString = "nonce=" + nonceString + "&encryption=" + encryption;
+	FMyActivePlayer* ActivePlayer = getPlayerByPlayerKey(playerKeyId);
+	if (ActivePlayer)
+	{
+		FString access_token = ActivePlayer->PlayerController->CurrentAccessTokenFromOSS;
 
-	if (bAttemptLock) {
-		OutputString = OutputString + "&lock=True";
+		if (bAttemptLock) {
+			OutputString = OutputString + "&lock=True";
+		}
+
+		FString APIURI = "/api/v1/game/player/" + playerKeyId;
+
+		bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetGamePlayerRequestComplete, APIURI, OutputString, access_token);
+
+		return requestSuccess;
 	}
-
-	FString APIURI = "/api/v1/game/player/" + playerKeyId;
-
-	bool requestSuccess = PerformHttpRequest(&UMyGameInstance::GetGamePlayerRequestComplete, APIURI, OutputString);
-
-	return requestSuccess;
 	return true;
 }
 
@@ -1299,13 +1334,21 @@ bool UMyGameInstance::SaveGamePlayer(FString playerKeyId, bool bAttemptUnLock)
 		PlayerJsonObj->SetBoolField("unlock", true);
 	}
 
-	FString APIURI = "/api/v1/game/player/" + activePlayer->gamePlayerKeyId + "/update";
+	// Only do this if we actually have a gamePlayerKeyId
+	// We might not...  If a user was not authorized for example.
 
-	bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::SaveGamePlayerRequestComplete, APIURI, JsonOutputString);
+	if (activePlayer->gamePlayerKeyId.Len() > 1) {
+		FString access_token = activePlayer->PlayerController->CurrentAccessTokenFromOSS;
 
+		FString APIURI = "/api/v1/game/player/" + activePlayer->gamePlayerKeyId + "/update";
 
-	return requestSuccess;
-	//return true;
+		bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::SaveGamePlayerRequestComplete, APIURI, JsonOutputString, access_token);
+		return requestSuccess;
+	}
+	else {
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] [SaveGamePlayer] - No gamePlayerKeyId found - skipping game player update"));
+		return false;
+	}
 }
 
 void UMyGameInstance::SaveGamePlayerRequestComplete(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
@@ -1386,6 +1429,8 @@ bool UMyGameInstance::DeActivatePlayer(int32 playerID)
 				//UE_LOG(LogTemp, Log, TEXT("playerKeyId: %d"), *playerKeyId);
 				//UE_LOG(LogTemp, Log, TEXT("Object is: %s"), *GetName());
 
+				FString access_token = CurrentActivePlayer->PlayerController->CurrentAccessTokenFromOSS;
+
 				FString nonceString = "10951350917635";
 				FString encryption = "off";  // Allowing unencrypted on sandbox for now.  
 
@@ -1400,7 +1445,7 @@ bool UMyGameInstance::DeActivatePlayer(int32 playerID)
 
 				FString APIURI = "/api/v1/server/player/" + playerKeyId + "/deactivate";;
 
-				bool requestSuccess = PerformHttpRequest(&UMyGameInstance::DeActivateRequestComplete, APIURI, OutputString);
+				bool requestSuccess = PerformHttpRequest(&UMyGameInstance::DeActivateRequestComplete, APIURI, OutputString, access_token);
 
 				SaveGamePlayer(CurrentActivePlayer->playerKeyId, true);
 
@@ -1522,8 +1567,10 @@ void UMyGameInstance::TransferPlayer(const FString& ServerKey, int32 playerID, b
 	if (serverRecord->permissionCanUserTravel)
 	{
 		//UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [UMyGameInstance] TransferPlayer - Permission Granted"));
+		FString access_token = playerRecord->PlayerController->CurrentAccessTokenFromOSS;
+
 		FString APIURI = "/api/v1/server/" + ServerKey + "/player/" + playerplayerKeyId + "/transfer";
-		bool requestSuccess = PerformHttpRequest(&UMyGameInstance::TransferPlayerRequestComplete, APIURI, OutputString);
+		bool requestSuccess = PerformHttpRequest(&UMyGameInstance::TransferPlayerRequestComplete, APIURI, OutputString, access_token);
 		return;
 	}
 	else {
@@ -1669,9 +1716,15 @@ bool UMyGameInstance::Purchase(FString playerKeyId, FString itemName, FString de
 
 	FString APIURI = "/api/v1/server/player/" + playerKeyId + "/purchase";
 
-	bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::PurchaseRequestComplete, APIURI, JsonOutputString);
+	FMyMatchPlayer* MatchPlayer = getMatchPlayerByPlayerKey(playerKeyId);
+	if (MatchPlayer)
+	{
+		FString access_token = MatchPlayer->PlayerController->CurrentAccessTokenFromOSS;
+		bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::PurchaseRequestComplete, APIURI, JsonOutputString, access_token);
+		return requestSuccess;
+	}
 
-	return requestSuccess;
+	return false;
 }
 
 void UMyGameInstance::PurchaseRequestComplete(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
@@ -1767,9 +1820,14 @@ bool UMyGameInstance::Reward(FString playerKeyId, FString itemName, FString desc
 
 	FString APIURI = "/api/v1/server/player/" + playerKeyId + "/reward";
 
-	bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::RewardRequestComplete, APIURI, JsonOutputString);
-
-	return requestSuccess;
+	FMyMatchPlayer* MatchPlayer = getMatchPlayerByPlayerKey(playerKeyId);
+	if (MatchPlayer)
+	{
+		FString access_token = MatchPlayer->PlayerController->CurrentAccessTokenFromOSS;
+		bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::RewardRequestComplete, APIURI, JsonOutputString, access_token);
+		return requestSuccess;
+	}
+	return false;
 }
 
 void UMyGameInstance::RewardRequestComplete(FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
@@ -1896,6 +1954,7 @@ bool UMyGameInstance::OutgoingChat(int32 playerID, FText message)
 
 	FString nonceString = "10951350917635";
 	FString encryption = "off";  // Allowing unencrypted on sandbox for now.  
+	FString access_token = CurrentActivePlayer->PlayerController->CurrentAccessTokenFromOSS;
 
 	FString OutputString;
 
@@ -1905,7 +1964,7 @@ bool UMyGameInstance::OutgoingChat(int32 playerID, FText message)
 
 	FString APIURI = "/api/v1/player/" + playerKeyId + "/chat";
 
-	bool requestSuccess = PerformHttpRequest(&UMyGameInstance::OutgoingChatComplete, APIURI, OutputString);
+	bool requestSuccess = PerformHttpRequest(&UMyGameInstance::OutgoingChatComplete, APIURI, OutputString, access_token);
 
 	return requestSuccess;
 
@@ -1943,7 +2002,7 @@ bool UMyGameInstance::SubmitMatchMakerResults()
 
 	FString APIURI = "/api/v1/matchmaker/results";
 
-	bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::SubmitMatchMakerResultsComplete, APIURI, json_string);
+	bool requestSuccess = PerformJsonHttpRequest(&UMyGameInstance::SubmitMatchMakerResultsComplete, APIURI, json_string, "");  // NO AccessToken
 
 	return requestSuccess;
 
@@ -2056,7 +2115,7 @@ bool UMyGameInstance::SubmitMatchResults()
 
 		FString APIURI = "/api/v1/match/results";;
 
-		bool requestSuccess = PerformHttpRequest(&UMyGameInstance::SubmitMatchResultsComplete, APIURI, OutputString);
+		bool requestSuccess = PerformHttpRequest(&UMyGameInstance::SubmitMatchResultsComplete, APIURI, OutputString, "");  // NO AccessToken
 
 		return requestSuccess;
 

@@ -250,13 +250,53 @@ class COMP_API AMyPlayerController : public APlayerController
 
 public:
 
-	UFUNCTION(BlueprintCallable, Category = "UETOPIA")
-		void Login();
+	// These are just temporary vars to hold data until we are ready to activate player.
+	FUniqueNetIdRepl UniqueId;
+	FString playerKeyId;
+	int32 playerIDTemp;
+
+	///////////////////////////////////////////////////////////
+	// This section from
+	// https://wiki.unrealengine.com/UMG,_Referencing_UMG_Widgets_in_Code
+
+	// Note: that am using forward declaration Because am not including the
+	// widget in the header and to prevent circular dependency.
+	// you dont need to do that if you include the Widget Class in the .h
+	// forward declaration is just putting "class" before the class name so the compiler know its a
+	// class but its not included in the header and don't freak out. Ex.
+
+	// Reference UMG Asset in the Editor
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Widgets")
+		TSubclassOf<class UUserWidget> wMainMenu;
+
+	// Variable to hold the widget After Creating it.
+	UUserWidget* MyMainMenu;
+
+	virtual void BeginPlay() override;
+
+	// Deprecated - Unused.
+	// Use the login function inside the LoginFlow Widget Instead.
+	//UFUNCTION(BlueprintCallable, Category = "UETOPIA")
+	//	void Login();
 
 	UFUNCTION(BlueprintCallable, Category = "UETOPIA", Server, Reliable, WithValidation)
 		void RequestBeginPlay();
 
 	FString PlayerUniqueNetId;
+
+	// We need to keep track of the Access token for each user.
+	// The server needs to be able to send this token along with certain requests for user validation
+	FString CurrentAccessTokenFromOSS;
+
+	// Set this player's access token on the server
+	UFUNCTION(Server, Reliable, WithValidation)
+		void ServerSetCurrentAccessTokenFromOSS(const FString& CurrentAccessTokenFromOSSIn);
+
+	// Tell the client to update the player access token
+	UFUNCTION(Client, Reliable)
+		void ClientGetCurrentAccessTokenFromOSS();
+
+	//////////////////////////////////
 
 	UFUNCTION(BlueprintCallable, Category = "UETOPIA")
 		void TravelPlayer(const FString& ServerUrl);
@@ -434,11 +474,11 @@ public:
 	ILoginFlowManager::FOnPopupDismissed OnPopupDismissedUEtopiaDelegate;
 private:
 
-	// 4.16 login flow stuff
-	void FOnPopupDismissed(const TSharedRef<SWidget>& DisplayWidget);
-	ILoginFlowManager::FOnPopupDismissed OnDisplayLoginWidget(const TSharedRef<SWidget>& DisplayWidget);
-	void OnDismissLoginWidget();
-	FReply CancelLoginFlow();
+	// 4.16 login flow stuff - moving to loginwidget
+	//void FOnPopupDismissed(const TSharedRef<SWidget>& DisplayWidget);
+	//ILoginFlowManager::FOnPopupDismissed OnDisplayLoginWidget(const TSharedRef<SWidget>& DisplayWidget);
+	//void OnDismissLoginWidget();
+	//FReply CancelLoginFlow();
 
 	TSharedPtr<ILoginFlowManager> LoginFlowManager;
 
@@ -499,6 +539,11 @@ private:
 
 	// The subsystem has finished reading the tournament details.  Copy them into our local struct and trigger the delegate to update the UI
 	void OnTournamentDetailsReadComplete();
+
+	// The subsystem login details have changed.  We need to update the cached token
+	// DECLARE_MULTICAST_DELEGATE_FourParams(FOnLoginStatusChanged, int32 /*LocalUserNum*/, ELoginStatus::Type /*OldStatus*/, ELoginStatus::Type /*NewStatus*/, const FUniqueNetId& /*NewId*/);
+	void OnLoginStatusChanged(int32 LocalUserNum, ELoginStatus::Type OldStatus, ELoginStatus::Type NewStatus, const FUniqueNetId& NewId);
+	void HandleUserLoginComplete(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error);
 
 
 	TArray<TSharedRef<IOnlinePartyJoinInfo>> PendingInvitesArray;

@@ -41,6 +41,9 @@ AMyPlayerController::AMyPlayerController()
 	const auto OnlineSub = IOnlineSubsystem::Get();
 	check(OnlineSub);
 
+	const auto IdentityInterface = OnlineSub->GetIdentityInterface();
+	check(IdentityInterface.IsValid());
+
 	const auto FriendsInterface = OnlineSub->GetFriendsInterface();
 	check(FriendsInterface.IsValid());
 
@@ -52,6 +55,9 @@ AMyPlayerController::AMyPlayerController()
 
 	const auto TournamentInterface = OnlineSub->GetTournamentInterface();
 	check(TournamentInterface.IsValid());
+
+	IdentityInterface->AddOnLoginStatusChangedDelegate_Handle(0, FOnLoginStatusChangedDelegate::CreateUObject(this, &AMyPlayerController::OnLoginStatusChanged));
+	IdentityInterface->AddOnLoginCompleteDelegate_Handle(0, FOnLoginCompleteDelegate::CreateUObject(this, &AMyPlayerController::HandleUserLoginComplete));
 
 	FriendsInterface->AddOnFriendsChangeDelegate_Handle(0, FOnFriendsChangeDelegate::CreateUObject(this, &AMyPlayerController::OnFriendsChange));
 	FriendsInterface->AddOnInviteReceivedDelegate_Handle(FOnInviteReceivedDelegate::CreateUObject(this, &AMyPlayerController::OnFriendInviteReceivedComplete));
@@ -91,101 +97,122 @@ AMyPlayerController::AMyPlayerController()
 }
 
 
-void AMyPlayerController::FOnPopupDismissed(const TSharedRef<SWidget>& DisplayWidget)
+void AMyPlayerController::BeginPlay()
 {
-	// create a login flow UI which contains the slate widget or native host widget blueprint implementable
-	///...
-	//return a FOnPopupDismissed delegate that the underlying system will call when the screen is closed for any reason.
-}
+	Super::BeginPlay();
 
-ILoginFlowManager::FOnPopupDismissed AMyPlayerController::OnDisplayLoginWidget(const TSharedRef<SWidget>& DisplayWidget)
-{
-	// create a login flow UI which contains the slate widget or native host widget blueprint implementable
-
-	GEngine->GameViewport->AddViewportWidgetContent(DisplayWidget);
-
-	// found this here:
-	// https://answers.unrealengine.com/questions/388469/extending-swebbrowser.html
-	//WebBrowserWidget = SNew(SWebBrowser)
-	//	.InitialURL("http://www.google.com")
-	//	.ShowControls(false)
-	//	.SupportsTransparency(false);
-
-	//return WebBrowserWidget.ToSharedRef();
-
-	// store the reference to the widget
-	DisplayWidgetRef = DisplayWidget;
-
-	//return a FOnPopupDismissed delegate that the underlying system will call when the screen is closed for any reason.
-	return ILoginFlowManager::FOnPopupDismissed::CreateUObject(this, &AMyPlayerController::OnDismissLoginWidget);
-}
-
-void AMyPlayerController::OnDismissLoginWidget()
-{
-	UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] OnDismissLoginWidget"));
-	// Widget dismissed by login flow or possibly game related Blueprint code
-	// For slate typically
-	//Overlay->RemoveSlot(LoginFlow.ToSharedRef());
-	GEngine->GameViewport->RemoveViewportWidgetContent(DisplayWidgetRef->AsShared());
-}
-
-FReply AMyPlayerController::CancelLoginFlow()
-{
-	// Blueprint callable if outer UI has way to shutdown login flow
-	//if (LoginFlowManager.IsValid())
-	//{
-	//	LoginFlowManager->CancelLoginFlow();
-	//}
-	return FReply::Handled();
-}
-
-void AMyPlayerController::Login()
-{
-	UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] Login"));
-
-
-	// Initialize the login flow UI code
-
-
-
-	UWorld* World = GetWorld();
-	FName FacebookIdentifier = Online::GetUtils()->GetOnlineIdentifier(World, FACEBOOK_SUBSYSTEM);
-	FName GoogleIdentifier = Online::GetUtils()->GetOnlineIdentifier(World, GOOGLE_SUBSYSTEM);
-	FName UEtopiaIdentifier = Online::GetUtils()->GetOnlineIdentifier(World, UETOPIA_SUBSYSTEM);
-
-
-
-
-	ILoginFlowModule& LoginFlowModule = ILoginFlowModule::Get();
-
-	LoginFlowManager = LoginFlowModule.CreateLoginFlowManager();
-
-	//if (!LoginFlowManager->AddLoginFlow(FacebookIdentifier, ILoginFlowManager::FOnDisplayPopup::CreateUObject(this, &AMyPlayerController::OnDisplayLoginWidget)))
-	//{
-	//	UE_LOG(LogTemp, Warning, TEXT("No Facebook subsystem configured. It will be unavailable"));
-	//}
-	//if (!LoginFlowManager->AddLoginFlow(GoogleIdentifier, ILoginFlowManager::FOnDisplayPopup::CreateUObject(this, &AMyPlayerController::OnDisplayLoginWidget)))
-	//{
-	//	UE_LOG(LogTemp, Warning, TEXT("No Google subsystem configured. It will be unavailable"));
-	//}
-	if (!LoginFlowManager->AddLoginFlow(UEtopiaIdentifier, ILoginFlowManager::FOnDisplayPopup::CreateUObject(this, &AMyPlayerController::OnDisplayLoginWidget), true))
+	// Only run this on client
+	if (!IsRunningDedicatedServer())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("No UEtopia subsystem configured. It will be unavailable"));
-	}
+		// Check to see if we are on the EntryLevel.
+		// If we are, we need to display the mainmenu widget.
+		FString mapName = GetWorld()->GetMapName().Mid(GetWorld()->StreamingLevelsPrefix.Len());
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] BeginPlay mapName: %s"), *mapName);
 
-	const auto OnlineSub = IOnlineSubsystem::Get();
-	if (OnlineSub)
-	{
-		const auto IdentityInterface = OnlineSub->GetIdentityInterface();
-		if (IdentityInterface.IsValid())
+		if (mapName == "EntryLevel")
 		{
-			FOnlineAccountCredentials* Credentials = new FOnlineAccountCredentials("InType", "InId", "InToken");
-			IdentityInterface->Login(0, *Credentials);
+			UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] BeginPlay on EntryLevel"));
+
+			if (wMainMenu) // Check if the Asset is assigned in the blueprint.
+			{
+				// Create the widget and store it.
+				MyMainMenu = CreateWidget<UUserWidget>(this, wMainMenu);
+
+				// now you can use the widget directly since you have a referance for it.
+				// Extra check to  make sure the pointer holds the widget.
+				if (MyMainMenu)
+				{
+					UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] MainMenu Found"));
+					//let add it to the view port
+					MyMainMenu->AddToViewport();
+				}
+
+				//Show the Cursor.
+				bShowMouseCursor = true;
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] BeginPlay on Regular Level"));
+
+			//Hide the Cursor.
+			// TODO - you probably want to do something more fancy to allow users access to the mouse in-game.
+			bShowMouseCursor = false;
+
+		}
+		// IN both cases we want to refresh our UI data
+		const auto OnlineSub = IOnlineSubsystem::Get();
+		if (OnlineSub)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] Got Online Sub"));
+			const auto IdentityInterface = OnlineSub->GetIdentityInterface();
+			if (IdentityInterface.IsValid())
+			{
+				// Creating a local player where we can get the UserID from
+				ULocalPlayer* LocalPlayer = Cast<ULocalPlayer>(Player);
+				TSharedPtr<const FUniqueNetId> UserId = OnlineSub->GetIdentityInterface()->GetUniquePlayerId(LocalPlayer->GetControllerId());
+				if (UserId.IsValid())
+				{
+					const auto LoginStatus = IdentityInterface->GetLoginStatus(*UserId);
+					if (LoginStatus == ELoginStatus::LoggedIn)
+					{
+
+						OnlineSub->GetFriendsInterface()->ReadFriendsList(0, "default");
+						OnlineSub->GetFriendsInterface()->QueryRecentPlayers(*UserId, "default");
+						// TODO we also want to get the party information here.
+						// But the OSS has no FetchJoinedParties.
+						// Can't use OnAuthenticated either.  Again no OSS support
+
+						// Last resort - sending it as a push from the backend.
+
+
+					}
+				}
+			}
 		}
 	}
 
-	
 
+
+
+}
+
+
+bool AMyPlayerController::ServerSetCurrentAccessTokenFromOSS_Validate(const FString& CurrentAccessTokenFromOSSIn)
+{
+	//UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AUEtopiaPersistCharacter] [ServerAttemptSpawnActor_Validate]  "));
+	return true;
+}
+
+void AMyPlayerController::ServerSetCurrentAccessTokenFromOSS_Implementation(const FString& CurrentAccessTokenFromOSSIn)
+{
+	// Only run this on the server
+	if (IsRunningDedicatedServer())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA]AMyPlayerController::ServerSetCurrentAccessTokenFromOSS_Implementation"));
+
+		CurrentAccessTokenFromOSS = CurrentAccessTokenFromOSSIn;
+
+		UMyGameInstance* TheGameInstance = Cast<UMyGameInstance>(GetWorld()->GetGameInstance());
+		TheGameInstance->ActivatePlayer(this, playerKeyId, playerIDTemp, UniqueId);
+	}
+	return;
+}
+
+void AMyPlayerController::ClientGetCurrentAccessTokenFromOSS_Implementation()
+{
+	UE_LOG(LogTemp, Log, TEXT("[UETOPIA]AMyPlayerController::ClientGetCurrentAccessTokenFromOSS"));
+	// Get the access token
+	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
+
+	if (OnlineSub)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] PerformHttpRequest found OnlineSub"));
+		FString CurrentAccessTokenFromOSSCache = OnlineSub->GetIdentityInterface()->GetAuthToken(0);
+		ServerSetCurrentAccessTokenFromOSS(CurrentAccessTokenFromOSSCache);
+	}
+
+	return;
 }
 
 void AMyPlayerController::TravelPlayer(const FString& ServerUrl)
@@ -987,4 +1014,37 @@ void AMyPlayerController::JoinTournament(const FString& TournamentKeyId)
 
 	OnlineSub->GetTournamentInterface()->JoinTournament(0, *TournamentId);
 
+}
+
+// Login status has changed.  We need up update the auth token
+void AMyPlayerController::OnLoginStatusChanged(int32 LocalUserNum, ELoginStatus::Type OldStatus, ELoginStatus::Type NewStatus, const FUniqueNetId& NewId)
+{
+	UE_LOG(LogTemp, Log, TEXT("[UETOPIA]AMyPlayerController::OnLoginStatusChanged"));
+
+	// Get the access token
+	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
+
+	if (OnlineSub)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] PerformHttpRequest found OnlineSub"));
+		FString CurrentAccessTokenFromOSSCache = OnlineSub->GetIdentityInterface()->GetAuthToken(0);
+		ServerSetCurrentAccessTokenFromOSS(CurrentAccessTokenFromOSSCache);
+	}
+
+
+}
+
+void AMyPlayerController::HandleUserLoginComplete(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId, const FString& Error)
+{
+	UE_LOG(LogTemp, Log, TEXT("[UETOPIA]AMyPlayerController::HandleUserLoginComplete"));
+
+	// Get the access token
+	IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get();
+
+	if (OnlineSub)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[UETOPIA] [AMyPlayerController] OnlineSub"));
+		FString CurrentAccessTokenFromOSSCache = OnlineSub->GetIdentityInterface()->GetAuthToken(0);
+		ServerSetCurrentAccessTokenFromOSS(CurrentAccessTokenFromOSSCache);
+	}
 }
